@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal, InvalidOperation
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -22,6 +23,7 @@ from bot.services.telegram import (
 )
 
 from bot.handlers.menu import show_main_menu
+from bot.utils.authorization import require_authorization
 
 
 CATEGORY_NAMES = {
@@ -30,6 +32,7 @@ CATEGORY_NAMES = {
     "shopping": "🛒 Shopping",
     "bills": "💡 Bills",
     "entertainment": "🎮 Entertainment",
+    "health": "🩺 Health",
     "sport": "⚽ Sport",
     "other": "📦 Other",
 }
@@ -141,6 +144,10 @@ def category_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
+                    "🩺 Health",
+                    callback_data="edit_category_health",
+                ),
+                InlineKeyboardButton(
                     "🎮 Entertainment",
                     callback_data="edit_category_entertainment",
                 ),
@@ -243,7 +250,7 @@ async def start_edit(
 
     context.user_data["editing_expense"] = {
         "category": expense.category,
-        "amount": float(expense.amount),
+        "amount": expense.amount,
         "description": expense.description,
         "expense_month": expense.expense_month,
     }
@@ -327,12 +334,17 @@ async def set_amount(
     text = update.message.text.strip()
 
     try:
-        amount = float(text)
+        amount = Decimal(text)
 
-        if amount <= 0:
+        if (
+            not amount.is_finite()
+            or amount <= 0
+            or amount > Decimal("99999999.99")
+            or amount.as_tuple().exponent < -2
+        ):
             raise ValueError
 
-    except ValueError:
+    except (InvalidOperation, ValueError):
         await delete_message(update)
 
         old_error_id = context.user_data.get(
@@ -432,8 +444,12 @@ async def set_description(
 ):
     description = update.message.text.strip()
 
-    if not description:
+    if not description or len(description) > 255:
         await delete_message(update)
+        await send_message(
+            update,
+            "❌ Description must contain 1–255 characters",
+        )
         return DESCRIPTION
 
     await delete_message(update)
@@ -839,81 +855,81 @@ async def cancel_edit(
 edit_expense_conversation = ConversationHandler(
     entry_points=[
         CallbackQueryHandler(
-            start_edit,
+            require_authorization(start_edit),
             pattern=r"^edit_expense_\d+$",
         )
     ],
     states={
         CATEGORY: [
             CallbackQueryHandler(
-                set_category,
+                require_authorization(set_category),
                 pattern=r"^edit_category_",
             ),
             CallbackQueryHandler(
-                back_to_edit,
+                require_authorization(back_to_edit),
                 pattern=r"^edit_back$",
             ),
         ],
         AMOUNT: [
             MessageHandler(
                 filters.TEXT & ~filters.COMMAND,
-                set_amount,
+                require_authorization(set_amount),
             ),
         ],
         DESCRIPTION: [
             MessageHandler(
                 filters.TEXT & ~filters.COMMAND,
-                set_description,
+                require_authorization(set_description),
             ),
         ],
         MONTH: [
             CallbackQueryHandler(
-                previous_month,
+                require_authorization(previous_month),
                 pattern=r"^edit_month_previous$",
             ),
             CallbackQueryHandler(
-                next_month,
+                require_authorization(next_month),
                 pattern=r"^edit_month_next$",
             ),
             CallbackQueryHandler(
-                select_month,
+                require_authorization(select_month),
                 pattern=r"^edit_month_select$",
             ),
             CallbackQueryHandler(
-                back_to_edit,
+                require_authorization(back_to_edit),
                 pattern=r"^edit_back$",
             ),
         ],
         CONFIRM: [
             CallbackQueryHandler(
-                select_category,
+                require_authorization(select_category),
                 pattern=r"^edit_field_category$",
             ),
             CallbackQueryHandler(
-                request_amount,
+                require_authorization(request_amount),
                 pattern=r"^edit_field_amount$",
             ),
             CallbackQueryHandler(
-                request_description,
+                require_authorization(request_description),
                 pattern=r"^edit_field_description$",
             ),
             CallbackQueryHandler(
-                request_month,
+                require_authorization(request_month),
                 pattern=r"^edit_field_month$",
             ),
             CallbackQueryHandler(
-                save_edit,
+                require_authorization(save_edit),
                 pattern=r"^edit_expense_save$",
             ),
             CallbackQueryHandler(
-                cancel_edit,
+                require_authorization(cancel_edit),
                 pattern=r"^edit_expense_cancel$",
             ),
         ],
     },
     fallbacks=[
         CallbackQueryHandler(
-            cancel_edit,
+            require_authorization(cancel_edit),
             pattern=r"^edit_expense_cancel$",
         ),
     ],

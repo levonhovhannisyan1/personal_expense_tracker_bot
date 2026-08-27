@@ -1,6 +1,16 @@
 from datetime import date, datetime
+from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -38,6 +48,11 @@ class User(Base):
         cascade="all, delete-orphan",
     )
 
+    incomes: Mapped[list["Income"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
 
 class Expense(Base):
     __tablename__ = "expenses"
@@ -57,7 +72,7 @@ class Expense(Base):
         nullable=False,
     )
 
-    amount: Mapped[float] = mapped_column(
+    amount: Mapped[Decimal] = mapped_column(
         Numeric(10, 2),
         nullable=False,
     )
@@ -81,3 +96,50 @@ class Expense(Base):
     user: Mapped["User"] = relationship(
         back_populates="expenses",
     )
+
+
+class Income(Base):
+    __tablename__ = "incomes"
+    __table_args__ = (
+        UniqueConstraint("user_id", "income_month", name="uq_income_user_month"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    income_month: Mapped[date] = mapped_column(Date, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
+
+    user: Mapped["User"] = relationship(back_populates="incomes")
+
+
+class SavingsSetting(Base):
+    __tablename__ = "savings_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        unique=True,
+        nullable=False,
+    )
+    opening_balance: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    effective_month: Mapped[date] = mapped_column(Date, nullable=False)
+
+
+class MonthlySummary(Base):
+    __tablename__ = "monthly_summaries"
+    __table_args__ = (
+        UniqueConstraint("user_id", "summary_month", name="uq_summary_user_month"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    summary_month: Mapped[date] = mapped_column(Date, nullable=False)
+    income: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    expenses: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    savings: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    closing_balance: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)

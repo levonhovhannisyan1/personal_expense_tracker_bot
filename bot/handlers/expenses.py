@@ -19,7 +19,7 @@ from bot.services.telegram import (
     edit_message,
     send_message,
 )
-from bot.utils.authorization import get_user_name
+from bot.utils.authorization import require_authorization
 
 
 CATEGORY_NAMES = {
@@ -28,6 +28,7 @@ CATEGORY_NAMES = {
     "shopping": "🛒 Shopping",
     "bills": "💡 Bills",
     "entertainment": "🎮 Entertainment",
+    "health": "🩺 Health",
     "sport": "⚽ Sport",
     "other": "📦 Other",
 }
@@ -181,10 +182,6 @@ async def view_expense(
 
         return
 
-    user_name = get_user_name(
-        update.effective_user.id
-    )
-
     await edit_message(
         update,
         format_expense(
@@ -278,23 +275,23 @@ async def expenses_back(
 
 expenses_handlers = [
     CallbackQueryHandler(
-        show_expenses,
+        require_authorization(show_expenses),
         pattern="^expenses$",
     ),
     CallbackQueryHandler(
-        show_expenses,
+        require_authorization(show_expenses),
         pattern="^expenses_list$",
     ),
     CallbackQueryHandler(
-        view_expense,
+        require_authorization(view_expense),
         pattern="^expense_view_",
     ),
     CallbackQueryHandler(
-        delete_expense_handler,
+        require_authorization(delete_expense_handler),
         pattern="^expense_delete_",
     ),
     CallbackQueryHandler(
-        expenses_back,
+        require_authorization(expenses_back),
         pattern="^expenses_back$",
     ),
 ]
