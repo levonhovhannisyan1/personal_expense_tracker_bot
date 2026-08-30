@@ -4,7 +4,14 @@ from decimal import Decimal
 from sqlalchemy import delete, select
 
 from bot.database.connection import SessionLocal
-from bot.database.models import Expense, Income, MonthlySummary, SavingsSetting, User
+from bot.database.models import (
+    BalanceAdjustment,
+    Expense,
+    Income,
+    MonthlySummary,
+    SavingsSetting,
+    User,
+)
 from bot.services.expense_service import (
     get_monthly_expense_totals,
     get_monthly_income_totals,
@@ -45,6 +52,60 @@ def set_opening_savings(
         return True
 
 
+def add_balance_adjustment(
+    telegram_user_id: int,
+    amount: Decimal,
+    adjustment_month: date,
+) -> bool:
+    if not is_authorized(telegram_user_id):
+        return False
+
+    with SessionLocal() as session:
+        user = session.scalar(select(User).where(User.telegram_id == telegram_user_id))
+        if user is None or not user.is_owner:
+            return False
+
+        session.add(
+            BalanceAdjustment(
+                user_id=user.id,
+                amount=amount,
+                adjustment_month=adjustment_month.replace(day=1),
+            )
+        )
+        session.commit()
+        return True
+
+
+def get_balance_adjustment_totals(
+    telegram_user_id: int,
+    current_month: date,
+) -> dict[date, Decimal]:
+    current_month = current_month.replace(day=1)
+    following_month = next_month(current_month)
+    totals = {
+        current_month: Decimal("0.00"),
+        following_month: Decimal("0.00"),
+    }
+    statistics_user_ids = get_statistics_user_ids(telegram_user_id)
+    if not statistics_user_ids:
+        return totals
+
+    with SessionLocal() as session:
+        statement = select(
+            BalanceAdjustment.adjustment_month,
+            BalanceAdjustment.amount,
+        ).where(
+            BalanceAdjustment.user_id.in_(statistics_user_ids),
+            BalanceAdjustment.adjustment_month >= current_month,
+            BalanceAdjustment.adjustment_month < next_month(following_month),
+        )
+        for adjustment_month, amount in session.execute(statement):
+            month = adjustment_month.replace(day=1)
+            totals[month] += amount
+
+    return totals
+
+
 def get_monthly_closing_balances(
     telegram_user_id: int,
     current_month: date,
@@ -52,7 +113,10 @@ def get_monthly_closing_balances(
     current_month = current_month.replace(day=1)
     following_month = next_month(current_month)
     statistics_user_ids = get_statistics_user_ids(telegram_user_id)
-    balances = {current_month: Decimal("0.00"), following_month: Decimal("0.00")}
+    balances = {
+        current_month: Decimal("0.00"),
+        following_month: Decimal("0.00"),
+    }
 
     if not statistics_user_ids:
         return balances
@@ -78,13 +142,33 @@ def get_monthly_closing_balances(
             if setting and setting.effective_month <= current_month:
                 opening_balance += setting.opening_balance
 
+        adjustments = session.scalars(
+            select(BalanceAdjustment).where(
+                BalanceAdjustment.user_id.in_(statistics_user_ids),
+                BalanceAdjustment.adjustment_month < current_month,
+            )
+        ).all()
+        opening_balance += sum(
+            (adjustment.amount for adjustment in adjustments),
+            Decimal("0.00"),
+        )
+
     expenses = get_monthly_expense_totals(telegram_user_id, current_month)
     incomes = get_monthly_income_totals(telegram_user_id, current_month)
+    adjustment_totals = get_balance_adjustment_totals(
+        telegram_user_id,
+        current_month,
+    )
+
     balances[current_month] = (
-        opening_balance + incomes[current_month] - expenses[current_month][1]
+        opening_balance
+        + adjustment_totals[current_month]
+        + incomes[current_month]
+        - expenses[current_month][1]
     )
     balances[following_month] = (
         balances[current_month]
+        + adjustment_totals[following_month]
         + incomes[following_month]
         - expenses[following_month][1]
     )
@@ -92,7 +176,6 @@ def get_monthly_closing_balances(
 
 
 def archive_monthly_financial_records(month: date):
-    """Persist compact monthly snapshots, then remove archived detail rows."""
     month = month.replace(day=1)
     following_month = next_month(month)
 
@@ -136,11 +219,31 @@ def archive_monthly_financial_records(month: date):
             setting = session.scalar(
                 select(SavingsSetting).where(SavingsSetting.user_id == user.id)
             )
+            previous_adjustments = sum(
+                session.scalars(
+                    select(BalanceAdjustment.amount).where(
+                        BalanceAdjustment.user_id == user.id,
+                        BalanceAdjustment.adjustment_month < month,
+                    )
+                ),
+                Decimal("0.00"),
+            )
+            month_adjustments = sum(
+                session.scalars(
+                    select(BalanceAdjustment.amount).where(
+                        BalanceAdjustment.user_id == user.id,
+                        BalanceAdjustment.adjustment_month == month,
+                    )
+                ),
+                Decimal("0.00"),
+            )
             opening_balance = previous_balance or Decimal("0.00")
             if previous_balance is None and setting and setting.effective_month <= month:
-                opening_balance = setting.opening_balance
+                opening_balance = setting.opening_balance + previous_adjustments
+            elif previous_balance is None:
+                opening_balance += previous_adjustments
 
-            if income or expenses or previous_balance is not None or opening_balance:
+            if income or expenses or previous_balance is not None or opening_balance or month_adjustments:
                 savings = income - expenses
                 session.add(
                     MonthlySummary(
@@ -149,7 +252,7 @@ def archive_monthly_financial_records(month: date):
                         income=income,
                         expenses=expenses,
                         savings=savings,
-                        closing_balance=opening_balance + savings,
+                        closing_balance=opening_balance + month_adjustments + savings,
                     )
                 )
 
