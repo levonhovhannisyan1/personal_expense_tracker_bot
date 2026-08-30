@@ -14,10 +14,7 @@ def main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
         keyboard.append(
             [
                 InlineKeyboardButton("💰 Add income", callback_data="add_income"),
-                InlineKeyboardButton(
-                    "🏦 Set balance",
-                    callback_data="set_starting_savings",
-                ),
+                InlineKeyboardButton("🏦 Set balance", callback_data="set_starting_savings"),
             ]
         )
 

@@ -79,7 +79,7 @@ async def statistics_back(
     await edit_message(
         update,
         "Choose an action",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=main_menu_keyboard(update.effective_user.id),
     )
 
 

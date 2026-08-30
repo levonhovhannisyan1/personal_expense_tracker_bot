@@ -8,5 +8,5 @@ async def show_main_menu(update: Update):
     await send_message(
         update,
         "Choose an action",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=main_menu_keyboard(update.effective_user.id),
     )

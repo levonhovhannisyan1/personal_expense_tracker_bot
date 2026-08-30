@@ -26,5 +26,5 @@ async def start(
     await send_message(
         update,
         f"Welcome {name}\n\nChoose an action",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=main_menu_keyboard(update.effective_user.id),
     )
