@@ -8,7 +8,7 @@ from telegram.ext import CallbackQueryHandler, ContextTypes, ConversationHandler
 from bot.handlers.menu import show_main_menu
 from bot.services.savings_service import set_opening_savings
 from bot.services.telegram import answer_callback, delete_message, send_message
-from bot.utils.authorization import require_authorization
+from bot.utils.authorization import require_owner
 
 
 AMOUNT = 0
@@ -99,25 +99,25 @@ def clear_savings_data(context: ContextTypes.DEFAULT_TYPE):
 savings_conversation = ConversationHandler(
     entry_points=[
         CallbackQueryHandler(
-            require_authorization(start_savings),
+            require_owner(start_savings),
             pattern=r"^set_starting_savings$",
         )
     ],
     states={
         AMOUNT: [
             CallbackQueryHandler(
-                require_authorization(cancel_savings),
+                require_owner(cancel_savings),
                 pattern=r"^savings_cancel$",
             ),
             MessageHandler(
                 filters.TEXT & ~filters.COMMAND,
-                require_authorization(set_savings),
+                require_owner(set_savings),
             ),
         ],
     },
     fallbacks=[
         CallbackQueryHandler(
-            require_authorization(cancel_savings),
+            require_owner(cancel_savings),
             pattern=r"^savings_cancel$",
         )
     ],
