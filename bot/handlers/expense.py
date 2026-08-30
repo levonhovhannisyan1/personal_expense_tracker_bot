@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal, InvalidOperation
 
 from telegram import (
     InlineKeyboardButton,
@@ -25,7 +26,7 @@ from bot.services.telegram import (
     edit_form,
     send_message,
 )
-from bot.utils.authorization import get_user_name
+from bot.utils.authorization import get_user_name, require_authorization
 
 
 CATEGORY, AMOUNT, DESCRIPTION, MONTH, CONFIRM = range(5)
@@ -37,6 +38,7 @@ CATEGORY_NAMES = {
     "shopping": "🛒 Shopping",
     "bills": "💡 Bills",
     "entertainment": "🎮 Entertainment",
+    "health": "🩺 Health",
     "sport": "⚽ Sport",
     "other": "📦 Other",
 }
@@ -74,6 +76,10 @@ def expense_keyboard(
                     ),
                 ],
                 [
+                    InlineKeyboardButton(
+                        "🩺 Health",
+                        callback_data="category_health",
+                    ),
                     InlineKeyboardButton(
                         "🎮 Entertainment",
                         callback_data="category_entertainment",
@@ -302,12 +308,17 @@ async def amount(
     text = update.message.text.strip()
 
     try:
-        amount_value = float(text)
+        amount_value = Decimal(text)
 
-        if amount_value <= 0:
+        if (
+            not amount_value.is_finite()
+            or amount_value <= 0
+            or amount_value > Decimal("99999999.99")
+            or amount_value.as_tuple().exponent < -2
+        ):
             raise ValueError
 
-    except ValueError:
+    except (InvalidOperation, ValueError):
         await delete_message(update)
 
         old_error_id = context.user_data.get(
@@ -408,8 +419,12 @@ async def description(
 ):
     description_text = update.message.text.strip()
 
-    if not description_text:
+    if not description_text or len(description_text) > 255:
         await delete_message(update)
+        await send_message(
+            update,
+            "❌ Description must contain 1–255 characters",
+        )
         return DESCRIPTION
 
     input_message_id = context.user_data.get(
@@ -660,78 +675,78 @@ async def cancel(
 expense_conversation = ConversationHandler(
     entry_points=[
         CallbackQueryHandler(
-            add_expense,
+            require_authorization(add_expense),
             pattern="^add_expense$",
         )
     ],
     states={
         CATEGORY: [
             CallbackQueryHandler(
-                category,
+                require_authorization(category),
                 pattern="^category_",
             ),
             CallbackQueryHandler(
-                cancel,
+                require_authorization(cancel),
                 pattern="^expense_cancel$",
             ),
         ],
         AMOUNT: [
             CallbackQueryHandler(
-                request_amount,
+                require_authorization(request_amount),
                 pattern="^expense_amount$",
             ),
             CallbackQueryHandler(
-                cancel,
+                require_authorization(cancel),
                 pattern="^expense_cancel$",
             ),
             MessageHandler(
                 filters.TEXT & ~filters.COMMAND,
-                amount,
+                require_authorization(amount),
             ),
         ],
         DESCRIPTION: [
             CallbackQueryHandler(
-                request_description,
+                require_authorization(request_description),
                 pattern="^expense_description$",
             ),
             CallbackQueryHandler(
-                cancel,
+                require_authorization(cancel),
                 pattern="^expense_cancel$",
             ),
             MessageHandler(
                 filters.TEXT & ~filters.COMMAND,
-                description,
+                require_authorization(description),
             ),
         ],
         MONTH: [
             CallbackQueryHandler(
-                request_month,
+                require_authorization(request_month),
                 pattern="^expense_month$",
             ),
             CallbackQueryHandler(
-                previous_month,
+                require_authorization(previous_month),
                 pattern="^month_previous$",
             ),
             CallbackQueryHandler(
-                next_month,
+                require_authorization(next_month),
                 pattern="^month_next$",
             ),
             CallbackQueryHandler(
-                select_month,
+                require_authorization(select_month),
                 pattern="^month_select$",
             ),
             CallbackQueryHandler(
-                cancel,
+                require_authorization(cancel),
                 pattern="^expense_cancel$",
             ),
         ],
         CONFIRM: [
             CallbackQueryHandler(
-                confirm,
+                require_authorization(confirm),
                 pattern="^expense_confirm$",
             ),
             CallbackQueryHandler(
-                cancel,
+                require_authorization(cancel),
                 pattern="^expense_cancel$",
             ),
         ],
@@ -739,7 +754,7 @@ expense_conversation = ConversationHandler(
     fallbacks=[
         CommandHandler(
             "cancel",
-            cancel,
+            require_authorization(cancel),
         ),
     ],
 )

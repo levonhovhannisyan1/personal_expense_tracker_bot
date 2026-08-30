@@ -1,10 +1,12 @@
+import os
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from bot.database.models import Base
 
 
-DATABASE_URL = "sqlite:///family_finance.db"
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///family_finance.db")
 
 engine = create_engine(
     DATABASE_URL,

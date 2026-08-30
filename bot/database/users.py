@@ -1,14 +1,8 @@
-import os
-
 from sqlalchemy import select
 
 from bot.database.connection import SessionLocal
 from bot.database.models import User
-
-
-OWNER_TELEGRAM_ID = int(
-    os.getenv("OWNER_ID", "0")
-)
+from bot.config import OWNER_ID
 
 
 def get_or_create_user(
@@ -29,7 +23,7 @@ def get_or_create_user(
             telegram_id=telegram_id,
             name=name,
             is_owner=(
-                telegram_id == OWNER_TELEGRAM_ID
+                telegram_id == OWNER_ID
             ),
         )
 
