@@ -20,8 +20,8 @@ def get_monthly_expense_totals(
     telegram_user_id: int,
     current_month: date,
 ) -> dict[date, tuple[int, Decimal]]:
-    """Return count and total for the current and following calendar months."""
-    visible_user_ids = get_visible_user_ids(telegram_user_id)
+    """Return overall totals for the current and following calendar months."""
+    statistics_user_ids = get_statistics_user_ids(telegram_user_id)
     next_calendar_month = next_month(current_month)
     month_after_next = next_month(next_calendar_month)
     totals = {
@@ -29,12 +29,12 @@ def get_monthly_expense_totals(
         next_calendar_month: (0, Decimal("0.00")),
     }
 
-    if not visible_user_ids:
+    if not statistics_user_ids:
         return totals
 
     with SessionLocal() as session:
         statement = select(Expense.expense_month, Expense.amount).where(
-            Expense.user_id.in_(visible_user_ids),
+            Expense.user_id.in_(statistics_user_ids),
             Expense.expense_month >= current_month,
             Expense.expense_month < month_after_next,
         )
@@ -51,7 +51,8 @@ def get_monthly_income_totals(
     telegram_user_id: int,
     current_month: date,
 ) -> dict[date, Decimal]:
-    visible_user_ids = get_visible_user_ids(telegram_user_id)
+    """Return overall income totals for the current and following months."""
+    statistics_user_ids = get_statistics_user_ids(telegram_user_id)
     next_calendar_month = next_month(current_month)
     month_after_next = next_month(next_calendar_month)
     totals = {
@@ -59,12 +60,12 @@ def get_monthly_income_totals(
         next_calendar_month: Decimal("0.00"),
     }
 
-    if not visible_user_ids:
+    if not statistics_user_ids:
         return totals
 
     with SessionLocal() as session:
         statement = select(Income.income_month, Income.amount).where(
-            Income.user_id.in_(visible_user_ids),
+            Income.user_id.in_(statistics_user_ids),
             Income.income_month >= current_month,
             Income.income_month < month_after_next,
         )
@@ -90,7 +91,7 @@ def save_monthly_income(
         user = session.scalar(
             select(User).where(User.telegram_id == telegram_user_id)
         )
-        if user is None:
+        if user is None or not user.is_owner:
             return False
 
         income = session.scalar(
@@ -149,15 +150,26 @@ def delete_monthly_financial_records(month: date):
         session.commit()
 
 
-def get_visible_user_ids(
+def get_statistics_user_ids(
     telegram_user_id: int,
 ) -> list[int]:
+    """Return all registered users for family-wide statistics."""
     if not is_authorized(telegram_user_id):
         return []
 
-    user = get_user_by_telegram_id(
-        telegram_user_id
-    )
+    with SessionLocal() as session:
+        users = session.scalars(select(User)).all()
+        return [user.id for user in users]
+
+
+def get_visible_user_ids(
+    telegram_user_id: int,
+) -> list[int]:
+    """Return users whose detailed expenses this user may access."""
+    if not is_authorized(telegram_user_id):
+        return []
+
+    user = get_user_by_telegram_id(telegram_user_id)
 
     if user is None:
         return []
@@ -166,25 +178,15 @@ def get_visible_user_ids(
         return [user.id]
 
     with SessionLocal() as session:
-        statement = select(User)
-
-        users = session.scalars(
-            statement
-        ).all()
-
-        return [
-            user.id
-            for user in users
-        ]
+        users = session.scalars(select(User)).all()
+        return [user.id for user in users]
 
 
 def get_user_expenses(
     telegram_user_id: int,
     limit: int = 10,
 ) -> list[Expense]:
-    visible_user_ids = get_visible_user_ids(
-        telegram_user_id
-    )
+    visible_user_ids = get_visible_user_ids(telegram_user_id)
 
     if not visible_user_ids:
         return []
@@ -192,14 +194,8 @@ def get_user_expenses(
     with SessionLocal() as session:
         statement = (
             select(Expense)
-            .options(
-                joinedload(Expense.user)
-            )
-            .where(
-                Expense.user_id.in_(
-                    visible_user_ids
-                )
-            )
+            .options(joinedload(Expense.user))
+            .where(Expense.user_id.in_(visible_user_ids))
             .order_by(
                 Expense.expense_month.desc(),
                 Expense.created_at.desc(),
@@ -207,18 +203,14 @@ def get_user_expenses(
             .limit(limit)
         )
 
-        return session.scalars(
-            statement
-        ).unique().all()
+        return session.scalars(statement).unique().all()
 
 
 def get_expense(
     telegram_user_id: int,
     expense_id: int,
 ) -> Expense | None:
-    visible_user_ids = get_visible_user_ids(
-        telegram_user_id
-    )
+    visible_user_ids = get_visible_user_ids(telegram_user_id)
 
     if not visible_user_ids:
         return None
@@ -226,14 +218,10 @@ def get_expense(
     with SessionLocal() as session:
         statement = (
             select(Expense)
-            .options(
-                joinedload(Expense.user)
-            )
+            .options(joinedload(Expense.user))
             .where(
                 Expense.id == expense_id,
-                Expense.user_id.in_(
-                    visible_user_ids
-                ),
+                Expense.user_id.in_(visible_user_ids),
             )
         )
 
@@ -248,20 +236,15 @@ def update_expense(
     description: str,
     expense_month: date,
 ) -> bool:
-    visible_user_ids = get_visible_user_ids(
-        telegram_user_id
-    )
+    visible_user_ids = get_visible_user_ids(telegram_user_id)
 
     if not visible_user_ids:
         return False
 
     with SessionLocal() as session:
-        statement = (
-            select(Expense)
-            .where(
-                Expense.id == expense_id,
-                Expense.user_id.in_(visible_user_ids),
-            )
+        statement = select(Expense).where(
+            Expense.id == expense_id,
+            Expense.user_id.in_(visible_user_ids),
         )
 
         expense = session.scalar(statement)
@@ -273,9 +256,7 @@ def update_expense(
         expense.amount = amount
         expense.description = description
         expense.expense_month = expense_month
-
         session.commit()
-
         return True
 
 
@@ -283,22 +264,15 @@ def delete_expense(
     telegram_user_id: int,
     expense_id: int,
 ) -> bool:
-    visible_user_ids = get_visible_user_ids(
-        telegram_user_id
-    )
+    visible_user_ids = get_visible_user_ids(telegram_user_id)
 
     if not visible_user_ids:
         return False
 
     with SessionLocal() as session:
-        statement = (
-            select(Expense)
-            .where(
-                Expense.id == expense_id,
-                Expense.user_id.in_(
-                    visible_user_ids
-                ),
-            )
+        statement = select(Expense).where(
+            Expense.id == expense_id,
+            Expense.user_id.in_(visible_user_ids),
         )
 
         expense = session.scalar(statement)
@@ -308,5 +282,4 @@ def delete_expense(
 
         session.delete(expense)
         session.commit()
-
         return True
