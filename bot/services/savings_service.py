@@ -8,7 +8,7 @@ from bot.database.models import Expense, Income, MonthlySummary, SavingsSetting,
 from bot.services.expense_service import (
     get_monthly_expense_totals,
     get_monthly_income_totals,
-    get_visible_user_ids,
+    get_statistics_user_ids,
     next_month,
 )
 from bot.utils.authorization import is_authorized
@@ -24,7 +24,7 @@ def set_opening_savings(
 
     with SessionLocal() as session:
         user = session.scalar(select(User).where(User.telegram_id == telegram_user_id))
-        if user is None:
+        if user is None or not user.is_owner:
             return False
 
         setting = session.scalar(
@@ -51,15 +51,15 @@ def get_monthly_closing_balances(
 ) -> dict[date, Decimal]:
     current_month = current_month.replace(day=1)
     following_month = next_month(current_month)
-    visible_user_ids = get_visible_user_ids(telegram_user_id)
+    statistics_user_ids = get_statistics_user_ids(telegram_user_id)
     balances = {current_month: Decimal("0.00"), following_month: Decimal("0.00")}
 
-    if not visible_user_ids:
+    if not statistics_user_ids:
         return balances
 
     with SessionLocal() as session:
         opening_balance = Decimal("0.00")
-        for user_id in visible_user_ids:
+        for user_id in statistics_user_ids:
             previous_summary = session.scalar(
                 select(MonthlySummary.closing_balance)
                 .where(
