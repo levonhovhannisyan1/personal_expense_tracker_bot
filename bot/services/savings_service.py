@@ -21,6 +21,20 @@ from bot.services.expense_service import (
 from bot.utils.authorization import is_authorized
 
 
+def has_opening_savings(telegram_user_id: int) -> bool:
+    if not is_authorized(telegram_user_id):
+        return False
+
+    with SessionLocal() as session:
+        user = session.scalar(select(User).where(User.telegram_id == telegram_user_id))
+        if user is None or not user.is_owner:
+            return False
+
+        return session.scalar(
+            select(SavingsSetting.id).where(SavingsSetting.user_id == user.id)
+        ) is not None
+
+
 def set_opening_savings(
     telegram_user_id: int,
     opening_balance: Decimal,
@@ -37,17 +51,16 @@ def set_opening_savings(
         setting = session.scalar(
             select(SavingsSetting).where(SavingsSetting.user_id == user.id)
         )
-        if setting is None:
-            session.add(
-                SavingsSetting(
-                    user_id=user.id,
-                    opening_balance=opening_balance,
-                    effective_month=effective_month.replace(day=1),
-                )
+        if setting is not None:
+            return False
+
+        session.add(
+            SavingsSetting(
+                user_id=user.id,
+                opening_balance=opening_balance,
+                effective_month=effective_month.replace(day=1),
             )
-        else:
-            setting.opening_balance = opening_balance
-            setting.effective_month = effective_month.replace(day=1)
+        )
         session.commit()
         return True
 
@@ -63,6 +76,12 @@ def add_balance_adjustment(
     with SessionLocal() as session:
         user = session.scalar(select(User).where(User.telegram_id == telegram_user_id))
         if user is None or not user.is_owner:
+            return False
+
+        setting_exists = session.scalar(
+            select(SavingsSetting.id).where(SavingsSetting.user_id == user.id)
+        ) is not None
+        if not setting_exists:
             return False
 
         session.add(
@@ -142,23 +161,12 @@ def get_monthly_closing_balances(
             if setting and setting.effective_month <= current_month:
                 opening_balance += setting.opening_balance
 
-        adjustments = session.scalars(
-            select(BalanceAdjustment).where(
-                BalanceAdjustment.user_id.in_(statistics_user_ids),
-                BalanceAdjustment.adjustment_month < current_month,
-            )
-        ).all()
-        opening_balance += sum(
-            (adjustment.amount for adjustment in adjustments),
-            Decimal("0.00"),
-        )
-
-    expenses = get_monthly_expense_totals(telegram_user_id, current_month)
-    incomes = get_monthly_income_totals(telegram_user_id, current_month)
     adjustment_totals = get_balance_adjustment_totals(
         telegram_user_id,
         current_month,
     )
+    expenses = get_monthly_expense_totals(telegram_user_id, current_month)
+    incomes = get_monthly_income_totals(telegram_user_id, current_month)
 
     balances[current_month] = (
         opening_balance
@@ -176,6 +184,7 @@ def get_monthly_closing_balances(
 
 
 def archive_monthly_financial_records(month: date):
+    """Persist compact monthly snapshots, then remove archived detail rows."""
     month = month.replace(day=1)
     following_month = next_month(month)
 
@@ -208,6 +217,16 @@ def archive_monthly_financial_records(month: date):
                 ),
                 Decimal("0.00"),
             )
+            month_adjustments = sum(
+                session.scalars(
+                    select(BalanceAdjustment.amount).where(
+                        BalanceAdjustment.user_id == user.id,
+                        BalanceAdjustment.adjustment_month == month,
+                    )
+                ),
+                Decimal("0.00"),
+            )
+
             previous_balance = session.scalar(
                 select(MonthlySummary.closing_balance)
                 .where(
@@ -219,29 +238,9 @@ def archive_monthly_financial_records(month: date):
             setting = session.scalar(
                 select(SavingsSetting).where(SavingsSetting.user_id == user.id)
             )
-            previous_adjustments = sum(
-                session.scalars(
-                    select(BalanceAdjustment.amount).where(
-                        BalanceAdjustment.user_id == user.id,
-                        BalanceAdjustment.adjustment_month < month,
-                    )
-                ),
-                Decimal("0.00"),
-            )
-            month_adjustments = sum(
-                session.scalars(
-                    select(BalanceAdjustment.amount).where(
-                        BalanceAdjustment.user_id == user.id,
-                        BalanceAdjustment.adjustment_month == month,
-                    )
-                ),
-                Decimal("0.00"),
-            )
             opening_balance = previous_balance or Decimal("0.00")
             if previous_balance is None and setting and setting.effective_month <= month:
-                opening_balance = setting.opening_balance + previous_adjustments
-            elif previous_balance is None:
-                opening_balance += previous_adjustments
+                opening_balance = setting.opening_balance
 
             if income or expenses or previous_balance is not None or opening_balance or month_adjustments:
                 savings = income - expenses
@@ -266,6 +265,12 @@ def archive_monthly_financial_records(month: date):
             delete(Income).where(
                 Income.income_month >= month,
                 Income.income_month < following_month,
+            )
+        )
+        session.execute(
+            delete(BalanceAdjustment).where(
+                BalanceAdjustment.adjustment_month >= month,
+                BalanceAdjustment.adjustment_month < following_month,
             )
         )
         session.commit()

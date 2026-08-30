@@ -1,6 +1,7 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.config import OWNER_ID
+from bot.services.savings_service import has_opening_savings
 
 
 def main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
@@ -11,10 +12,14 @@ def main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
     ]
 
     if user_id == OWNER_ID:
+        has_balance = has_opening_savings(user_id)
         keyboard.append(
             [
                 InlineKeyboardButton("💰 Add income", callback_data="add_income"),
-                InlineKeyboardButton("🏦 Set balance", callback_data="set_starting_savings"),
+                InlineKeyboardButton(
+                    "💵 Adjust balance" if has_balance else "🏦 Set balance",
+                    callback_data="adjust_balance" if has_balance else "set_starting_savings",
+                ),
             ]
         )
 
