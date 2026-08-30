@@ -1,4 +1,4 @@
-from datetime import date, datetime, time
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 import os
 from zoneinfo import ZoneInfo
@@ -6,7 +6,6 @@ from zoneinfo import ZoneInfo
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest, Forbidden
 from telegram.ext import (
-    Application,
     CallbackQueryHandler,
     ContextTypes,
     ConversationHandler,
@@ -167,20 +166,6 @@ async def send_monthly_income_reminders(
         )
     except Forbidden:
         pass
-
-
-def schedule_monthly_income_reminder(application: Application):
-    if application.job_queue is None:
-        raise RuntimeError(
-            "Job queue is unavailable. Install dependencies from requirements.txt."
-        )
-
-    application.job_queue.run_monthly(
-        send_monthly_income_reminders,
-        when=time(hour=10, tzinfo=REMINDER_TIMEZONE),
-        day=2,
-        name="monthly_income_reminder",
-    )
 
 
 def previous_calendar_month(month: date) -> date:
