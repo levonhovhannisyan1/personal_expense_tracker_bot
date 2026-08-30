@@ -19,7 +19,7 @@ from bot.handlers.menu import show_main_menu
 from bot.services.expense_service import get_monthly_financial_summary, save_monthly_income
 from bot.services.savings_service import archive_monthly_financial_records
 from bot.services.telegram import answer_callback, delete_message, send_message
-from bot.utils.authorization import require_authorization
+from bot.utils.authorization import require_owner
 
 
 AMOUNT = 0
@@ -30,12 +30,6 @@ def cancel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton("❌ Cancel", callback_data="income_cancel")]]
     )
-
-
-def month_from_callback(callback_data: str) -> date:
-    if callback_data == "add_income":
-        return date.today().replace(day=1)
-    return date.fromisoformat(f"{callback_data.removeprefix('income_add_')}-01")
 
 
 async def start_income(
@@ -53,6 +47,12 @@ async def start_income(
         reply_markup=cancel_keyboard(),
     )
     return AMOUNT
+
+
+def month_from_callback(callback_data: str) -> date:
+    if callback_data == "add_income":
+        return date.today().replace(day=1)
+    return date.fromisoformat(f"{callback_data.removeprefix('income_add_')}-01")
 
 
 async def set_income(
@@ -132,12 +132,9 @@ async def send_monthly_income_reminders(
     try:
         summary_message = await context.bot.send_message(
             chat_id=OWNER_ID,
-            text=format_monthly_summary(
-                previous_month,
-            ),
+            text=format_monthly_summary(previous_month),
         )
     except Forbidden:
-        # Do not archive data if the owner cannot receive its summary.
         return
 
     try:
@@ -147,7 +144,6 @@ async def send_monthly_income_reminders(
             disable_notification=True,
         )
     except (BadRequest, Forbidden):
-        # Pinning may be unavailable in a chat, but the sent summary is retained.
         pass
 
     archive_monthly_financial_records(previous_month)
@@ -170,7 +166,6 @@ async def send_monthly_income_reminders(
             reply_markup=keyboard,
         )
     except Forbidden:
-        # Telegram cannot message users who have not started the bot.
         pass
 
 
@@ -199,10 +194,7 @@ def reminder_date() -> date:
 
 
 def format_monthly_summary(month: date) -> str:
-    expense_count, income, expenses = get_monthly_financial_summary(
-        OWNER_ID,
-        month,
-    )
+    expense_count, income, expenses = get_monthly_financial_summary(OWNER_ID, month)
     savings = income - expenses
     expense_label = "expense" if expense_count == 1 else "expenses"
     archive_status = "Detailed records for this month have been archived."
@@ -218,25 +210,25 @@ def format_monthly_summary(month: date) -> str:
 income_conversation = ConversationHandler(
     entry_points=[
         CallbackQueryHandler(
-            require_authorization(start_income),
+            require_owner(start_income),
             pattern=r"^(?:add_income|income_add_\d{4}-\d{2})$",
         )
     ],
     states={
         AMOUNT: [
             CallbackQueryHandler(
-                require_authorization(cancel_income),
+                require_owner(cancel_income),
                 pattern=r"^income_cancel$",
             ),
             MessageHandler(
                 filters.TEXT & ~filters.COMMAND,
-                require_authorization(set_income),
+                require_owner(set_income),
             ),
         ],
     },
     fallbacks=[
         CallbackQueryHandler(
-            require_authorization(cancel_income),
+            require_owner(cancel_income),
             pattern=r"^income_cancel$",
         )
     ],
