@@ -21,81 +21,33 @@ class Base(DeclarativeBase):
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(
-        Integer,
-        primary_key=True,
-    )
-
-    telegram_id: Mapped[int] = mapped_column(
-        Integer,
-        unique=True,
-        nullable=False,
-    )
-
-    name: Mapped[str] = mapped_column(
-        String(50),
-        nullable=False,
-    )
-
-    is_owner: Mapped[bool] = mapped_column(
-        Boolean,
-        default=False,
-        nullable=False,
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    telegram_id: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(50), nullable=False)
+    is_owner: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     expenses: Mapped[list["Expense"]] = relationship(
-        back_populates="user",
-        cascade="all, delete-orphan",
+        back_populates="user", cascade="all, delete-orphan"
     )
-
     incomes: Mapped[list["Income"]] = relationship(
-        back_populates="user",
-        cascade="all, delete-orphan",
+        back_populates="user", cascade="all, delete-orphan"
     )
 
 
 class Expense(Base):
     __tablename__ = "expenses"
 
-    id: Mapped[int] = mapped_column(
-        Integer,
-        primary_key=True,
-    )
-
-    user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id"),
-        nullable=False,
-    )
-
-    category: Mapped[str] = mapped_column(
-        String(50),
-        nullable=False,
-    )
-
-    amount: Mapped[Decimal] = mapped_column(
-        Numeric(10, 2),
-        nullable=False,
-    )
-
-    description: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-    )
-
-    expense_month: Mapped[date] = mapped_column(
-        Date,
-        nullable=False,
-    )
-
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    category: Mapped[str] = mapped_column(String(50), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    description: Mapped[str] = mapped_column(String(255), nullable=False)
+    expense_month: Mapped[date] = mapped_column(Date, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
-        nullable=False,
+        DateTime, default=datetime.utcnow, nullable=False
     )
 
-    user: Mapped["User"] = relationship(
-        back_populates="expenses",
-    )
+    user: Mapped["User"] = relationship(back_populates="expenses")
 
 
 class Income(Base):
@@ -109,9 +61,7 @@ class Income(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     income_month: Mapped[date] = mapped_column(Date, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
-        nullable=False,
+        DateTime, default=datetime.utcnow, nullable=False
     )
 
     user: Mapped["User"] = relationship(back_populates="incomes")
@@ -122,12 +72,22 @@ class SavingsSetting(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id"),
-        unique=True,
-        nullable=False,
+        ForeignKey("users.id"), unique=True, nullable=False
     )
     opening_balance: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     effective_month: Mapped[date] = mapped_column(Date, nullable=False)
+
+
+class BalanceAdjustment(Base):
+    __tablename__ = "balance_adjustments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    adjustment_month: Mapped[date] = mapped_column(Date, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
 
 
 class MonthlySummary(Base):
